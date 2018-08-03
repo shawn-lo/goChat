@@ -1,5 +1,7 @@
 package main
 
+import "fmt"
+
 // Hub maintains the set of active clients and broadcasts messages to the
 // clients.
 type Hub struct {
@@ -56,30 +58,46 @@ func (h *Hub) run() {
 		select {
 		case customer := <-h.cRegister:
 			h.customers[customer.HashKey()] = customer
+			// give notification
+			if len(h.availableAgents) > 0 {
+				fmt.Println(len(h.availableAgents))
+				a := h.availableAgents[0]
+				h.availableAgents = h.availableAgents[1:]
+				fmt.Println(len(h.availableAgents))
+				h.agentMapToCus[a] = customer
+				h.cusMapToAgent[customer] = a
+			}
 		case agent := <-h.aRegister:
 			h.agents[agent.HashKey()] = agent
+			h.availableAgents = append(h.availableAgents, agent)
 		case customer := <-h.cUnregister:
+			fmt.Println("Customer Closed")
 			cusKey := customer.HashKey()
-			agent := h.cusMapToAgent[customer]
-			agentKey := agent.HashKey()
 			if _, ok := h.customers[cusKey]; ok {
+				if a, ok := h.cusMapToAgent[customer]; ok {
+					if a != nil {
+						a.conn.Close()
+						delete(h.cusMapToAgent, customer)
+					} else {
+						fmt.Println("This customer leaves before match.")
+					}
+				}
 				delete(h.customers, cusKey)
-				delete(h.agents, agentKey)
-				delete(h.cusMapToAgent, customer)
-				delete(h.agentMapToCus, agent)
 				close(customer.recv)
-				close(agent.recv)
 			}
 		case agent := <-h.aUnregister:
+			fmt.Println("Agent Closed")
 			agentKey := agent.HashKey()
-			customer := h.agentMapToCus[agent]
-			cusKey := customer.HashKey()
-			if _, ok := h.customers[agentKey]; ok {
-				delete(h.customers, cusKey)
+			if _, ok := h.agents[agentKey]; ok {
+				if c, ok := h.agentMapToCus[agent]; ok {
+					if c != nil {
+						c.conn.Close()
+						delete(h.agentMapToCus, agent)
+					} else {
+						fmt.Println("This agent leaves before a customer coming.")
+					}
+				}
 				delete(h.agents, agentKey)
-				delete(h.cusMapToAgent, customer)
-				delete(h.agentMapToCus, agent)
-				close(customer.recv)
 				close(agent.recv)
 			}
 		}

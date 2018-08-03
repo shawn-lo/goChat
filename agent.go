@@ -59,32 +59,34 @@ func (a *Agent) HashKey() string {
 // ensures that there is at most one reader on a connection by executing all
 // reads from this goroutine.
 func (a *Agent) readPump() {
-	//defer func() {
-	//	a.hub.aUnregister <- a
-	//	a.conn.Close()
-	//}()
+	defer func() {
+		a.hub.aUnregister <- a
+		a.conn.Close()
+	}()
 	a.conn.SetReadLimit(maxMessageSize)
+	// This used to set read deadline to a time less than next expected pong.
 	a.conn.SetReadDeadline(time.Now().Add(pongWait))
+	// This will be called below, in a.conn.ReadMessage(). It used to refresh pong time when received pong successfully.
 	a.conn.SetPongHandler(func(string) error { a.conn.SetReadDeadline(time.Now().Add(pongWait)); return nil })
-	c := a.hub.agentMapToCus[a]
-
 	for {
+		fmt.Println("test")
 		_, message, err := a.conn.ReadMessage()
+		c := a.hub.agentMapToCus[a]
 		if err != nil {
+			fmt.Println("Pong missed. ")
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				log.Printf("error: %v", err)
 			}
 			break
 		}
+
 		message = bytes.TrimSpace(bytes.Replace(message, newline, space, -1))
 		if c != nil {
 			fmt.Println(c.HashKey())
 			c.recv<- message
 		} else {
-			fmt.Println("Only agents")
-			fmt.Println(message)
+			fmt.Println("No customer online. Send message failed.")
 		}
-		//c.recv<- message
 	}
 }
 
@@ -95,10 +97,10 @@ func (a *Agent) readPump() {
 // executing all writes from this goroutine.
 func (a *Agent) writePump() {
 	ticker := time.NewTicker(pingPeriod)
-	//defer func() {
-	//	ticker.Stop()
-	//	a.conn.Close()
-	//}()
+	defer func() {
+		ticker.Stop()
+		a.conn.Close()
+	}()
 	for {
 		select {
 		case message, ok := <-a.recv:
@@ -127,7 +129,9 @@ func (a *Agent) writePump() {
 			}
 		case <-ticker.C:
 			a.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			// Send regular ping
 			if err := a.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				fmt.Println("Agent. From hub to ws, disconnect")
 				return
 			}
 		}
@@ -143,11 +147,7 @@ func serveWsa(hub *Hub, w http.ResponseWriter, r *http.Request) {
 	}
 	agent := &Agent{hub: hub, conn: conn, recv: make(chan []byte, 256), ip: "testIP", sid: "testSID"}
 	agent.hub.aRegister <- agent
-	agent.hub.agents[agent.HashKey()] = agent
-	agent.hub.availableAgents = append(agent.hub.availableAgents, agent)
 
-	// Allow collection of memory referenced by the caller by doing all work in
-	// new goroutines.
-	//go agent.writePump()
-	//go agent.readPump()
+	go agent.writePump()
+	go agent.readPump()
 }
