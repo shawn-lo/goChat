@@ -8,6 +8,8 @@ import (
 
 	"github.com/gorilla/websocket"
 	"fmt"
+	"math/rand"
+	"strconv"
 )
 
 const (
@@ -145,7 +147,7 @@ func serveWsa(hub *Hub, w http.ResponseWriter, r *http.Request) {
 		log.Println(err)
 		return
 	}
-	agent := &Agent{hub: hub, conn: conn, recv: make(chan []byte, 256), ip: "testIP", sid: "testSID"}
+	agent := &Agent{hub: hub, conn: conn, recv: make(chan []byte, 256), ip: "testIP", sid: strconv.Itoa(rand.Int())}
 	agent.hub.aRegister <- agent
 
 	go agent.writePump()

@@ -1,7 +1,12 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
+// 5 min
+var VALID_DURATION time.Duration = 5*1000*1000*1000*60
 // Hub maintains the set of active clients and broadcasts messages to the
 // clients.
 type Hub struct {
@@ -28,6 +33,10 @@ type Hub struct {
 	agentMapToCus map[*Agent]*Customer
 
 	availableAgents []*Agent
+
+	waitingCustomers int8
+
+	publicChan chan []byte
 }
 
 func newHub() *Hub {
@@ -41,6 +50,8 @@ func newHub() *Hub {
 		availableAgents: make([]*Agent, 0),
 		cusMapToAgent: make(map[*Customer]*Agent),
 		agentMapToCus: make(map[*Agent]*Customer),
+		waitingCustomers: 0,
+		publicChan: make(chan []byte, 5),
 	}
 }
 
@@ -66,6 +77,9 @@ func (h *Hub) run() {
 				fmt.Println(len(h.availableAgents))
 				h.agentMapToCus[a] = customer
 				h.cusMapToAgent[customer] = a
+			} else {
+				//h.waitingCustomers++
+				h.publicChan<- []byte("A new client login.")
 			}
 		case agent := <-h.aRegister:
 			h.agents[agent.HashKey()] = agent
@@ -100,6 +114,14 @@ func (h *Hub) run() {
 				delete(h.agents, agentKey)
 				close(agent.recv)
 			}
+		case message := <-h.publicChan:
+			fmt.Printf("There are %d agents\n", len(h.agents))
+			for agent := range h.agents {
+				select {
+				case h.agents[agent].recv <- message:
+				}
+			}
 		}
+
 	}
 }

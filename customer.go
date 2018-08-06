@@ -21,6 +21,8 @@ type Customer struct {
 	recv chan []byte
 
 	ip string
+
+	lastRecvTime time.Time
 }
 
 func (c *Customer) HashKey() string {
@@ -42,6 +44,15 @@ func (c *Customer) readPump() {
 	c.conn.SetPongHandler(func(string) error { c.conn.SetReadDeadline(time.Now().Add(pongWait)); return nil })
 	for {
 		_, message, err := c.conn.ReadMessage()
+		diff := time.Since(c.lastRecvTime)
+		if diff < VALID_DURATION {
+			// in valid duration
+			c.lastRecvTime = time.Now()
+		} else {
+			break
+		}
+		fmt.Print("The diff is ", time.Since(c.lastRecvTime))
+
 		a := c.hub.cusMapToAgent[c]
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
@@ -109,7 +120,7 @@ func serveWsc(hub *Hub, w http.ResponseWriter, r *http.Request) {
 		log.Println(err)
 		return
 	}
-	customer := &Customer{hub: hub, conn: conn, recv: make(chan []byte, 256), ip: "testIPCustomer"}
+	customer := &Customer{hub: hub, conn: conn, recv: make(chan []byte, 256), ip: "testIPCustomer", lastRecvTime: time.Now()}
 	customer.hub.cRegister <- customer
 
 	go customer.writePump()
